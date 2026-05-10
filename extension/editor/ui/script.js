@@ -22,26 +22,28 @@ function initCanvas(base64) {
     fabric.Image.fromURL(base64, function(img) {
         if (!img) return;
         originalImage = img;
-        fitToScreen();
+        
+        // Initial fit to screen without permanent scaling
+        const padding = 60;
+        const initialZoom = Math.min((window.innerWidth - padding) / img.width, (window.innerHeight - 110 - padding) / img.height);
+        
+        zoomLevel = initialZoom;
+        
+        img.set({ originX: 'left', originY: 'top', selectable: false, evented: false });
+        
+        canvas.setDimensions({ width: img.width, height: img.height });
+        canvas.setZoom(zoomLevel);
+        
         canvas.add(img);
         canvas.sendToBack(img);
         canvas.renderAll();
+        
+        updateZoomDisplay();
         updateSettings();
     });
 
     setupInteraction();
     setupZoomAndPan();
-}
-
-function fitToScreen() {
-    if (!originalImage) return;
-    const padding = 60;
-    const ratio = Math.min((window.innerWidth - padding) / originalImage.width, (window.innerHeight - 110 - padding) / originalImage.height);
-    zoomLevel = ratio;
-    updateZoomDisplay();
-    canvas.setDimensions({ width: originalImage.width * zoomLevel, height: originalImage.height * zoomLevel });
-    originalImage.set({ scaleX: zoomLevel, scaleY: zoomLevel, originX: 'left', originY: 'top', selectable: false, evented: false });
-    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
 }
 
 function updateZoomDisplay() {
@@ -55,8 +57,10 @@ function updateSettings() {
     const strokeWidth = parseInt(document.getElementById('stroke-width').value);
     const noFill = document.getElementById('btn-no-fill').classList.contains('active');
 
+    const actualFill = noFill ? 'transparent' : fillColor;
+
     document.getElementById('stroke-bar').style.backgroundColor = strokeColor;
-    document.getElementById('fill-bar').style.backgroundColor = noFill ? 'transparent' : fillColor;
+    document.getElementById('fill-bar').style.backgroundColor = actualFill;
 
     canvas.freeDrawingBrush.color = strokeColor;
     canvas.freeDrawingBrush.width = strokeWidth;
@@ -64,34 +68,30 @@ function updateSettings() {
     const active = canvas.getActiveObject();
     if (active) {
         if (active.type === 'i-text') {
-            active.set({ fill: strokeColor, backgroundColor: noFill ? 'transparent' : fillColor });
+            active.set({ fill: strokeColor, backgroundColor: actualFill });
         } else if (active.toolType !== TOOLS.BLUR) {
-            active.set({ stroke: strokeColor, strokeWidth: strokeWidth, fill: noFill ? 'transparent' : fillColor });
+            active.set({ stroke: strokeColor, strokeWidth: strokeWidth, fill: actualFill });
         }
         canvas.renderAll();
     }
 }
 
-// DYNAMIC PIXELATION
 function refreshPixelate(obj) {
     if (!obj || obj.toolType !== TOOLS.BLUR) return;
     
-    // Core: Use the actual width/height considering scaling
-    const actualWidth = obj.width * obj.scaleX;
-    const actualHeight = obj.height * obj.scaleY;
-    const s = originalImage.scaleX;
-    const pixelSize = 12;
-    
+    // Core: Pixelate uses full resolution image
+    const pixelSize = 15;
+    const left = obj.left;
+    const top = obj.top;
+    const width = obj.width * obj.scaleX;
+    const height = obj.height * obj.scaleY;
+
     const tempCanvas = document.createElement('canvas');
     const ctx = tempCanvas.getContext('2d');
-    tempCanvas.width = actualWidth;
-    tempCanvas.height = actualHeight;
+    tempCanvas.width = width;
+    tempCanvas.height = height;
 
-    ctx.drawImage(
-        originalImage._element,
-        obj.left / s, obj.top / s, actualWidth / s, actualHeight / s,
-        0, 0, actualWidth, actualHeight
-    );
+    ctx.drawImage(originalImage._element, left, top, width, height, 0, 0, width, height);
 
     for (let y = 0; y < tempCanvas.height; y += pixelSize) {
         for (let x = 0; x < tempCanvas.width; x += pixelSize) {
@@ -102,11 +102,7 @@ function refreshPixelate(obj) {
     }
 
     fabric.Image.fromURL(tempCanvas.toDataURL(), function(pImg) {
-        // Use pattern that matches current object scale
         obj.set('fill', new fabric.Pattern({ source: pImg._element, repeat: 'no-repeat' }));
-        // Important: we render a pattern that is already at the final size, 
-        // so we don't want the object scale to affect it internally twice.
-        // Fabric patterns are tricky with scaling.
         canvas.renderAll();
     });
 }
@@ -136,8 +132,10 @@ function setupInteraction() {
         isDrawing = true;
         const p = canvas.getPointer(o.e);
         origX = p.x; origY = p.y;
+        
         const sc = document.getElementById('stroke-color-picker').value;
-        const fc = document.getElementById('btn-no-fill').classList.contains('active') ? 'transparent' : document.getElementById('fill-color-picker').value;
+        const noFill = document.getElementById('btn-no-fill').classList.contains('active');
+        const fc = noFill ? 'transparent' : document.getElementById('fill-color-picker').value;
         const sw = parseInt(document.getElementById('stroke-width').value);
 
         const common = { left: origX, top: origY, strokeUniform: true, selectable: true };
@@ -172,12 +170,28 @@ function setupInteraction() {
     canvas.on('object:moving', (e) => refreshPixelate(e.target));
     canvas.on('object:scaling', (e) => refreshPixelate(e.target));
 
+    // Handle Deletion with awareness of text editing
     const del = () => { 
+        const active = canvas.getActiveObject();
+        // Don't delete if we are actively typing in a text box
+        if (active && active.isEditing) return;
+        
         canvas.getActiveObjects().forEach(obj => { if (obj !== originalImage) canvas.remove(obj); });
         canvas.discardActiveObject().renderAll();
     };
-    document.getElementById('action-delete').addEventListener('click', del);
-    window.addEventListener('keydown', (e) => { if (e.key === 'Delete' || e.key === 'Backspace') del(); });
+    
+    document.getElementById('action-delete').onclick = del;
+    window.addEventListener('keydown', (e) => { 
+        if (e.key === 'Delete') del(); 
+        // Backspace should only delete object if NOT editing text
+        if (e.key === 'Backspace') {
+            const active = canvas.getActiveObject();
+            if (active && !active.isEditing) {
+                del();
+                e.preventDefault();
+            }
+        }
+    });
 }
 
 function setupZoomAndPan() {
@@ -222,10 +236,15 @@ function setupZoomAndPan() {
 
     document.getElementById('zoom-in').onclick = () => { zoomLevel *= 1.2; canvas.setZoom(zoomLevel); updateZoomDisplay(); };
     document.getElementById('zoom-out').onclick = () => { zoomLevel /= 1.2; canvas.setZoom(zoomLevel); updateZoomDisplay(); };
-    document.getElementById('zoom-reset').onclick = fitToScreen;
+    document.getElementById('zoom-reset').onclick = () => {
+        const padding = 60;
+        zoomLevel = Math.min((window.innerWidth - padding) / originalImage.width, (window.innerHeight - 110 - padding) / originalImage.height);
+        canvas.setZoom(zoomLevel);
+        canvas.setViewportTransform([zoomLevel, 0, 0, zoomLevel, 0, 0]);
+        updateZoomDisplay();
+    };
 }
 
-// UI Handlers
 document.querySelectorAll('button[id^="tool-"]').forEach(btn => btn.addEventListener('click', () => {
     if (btn.id === 'tool-ocr') return;
     document.querySelectorAll('button[id^="tool-"]').forEach(b => b.classList.remove('active'));
@@ -233,11 +252,14 @@ document.querySelectorAll('button[id^="tool-"]').forEach(btn => btn.addEventList
     currentTool = btn.id.replace('tool-', '');
     canvas.isDrawingMode = (currentTool === TOOLS.DRAW);
     if (currentTool === TOOLS.TEXT) {
+        const sc = document.getElementById('stroke-color-picker').value;
+        const noFill = document.getElementById('btn-no-fill').classList.contains('active');
+        const fc = noFill ? 'transparent' : document.getElementById('fill-color-picker').value;
         const t = new fabric.IText('Text', { 
-            left: 100, top: 100, 
+            left: canvas.width/2, top: canvas.height/2, 
             fontFamily: 'SF Pro Display, Segoe UI, sans-serif', 
-            fill: document.getElementById('stroke-color-picker').value,
-            backgroundColor: document.getElementById('btn-no-fill').classList.contains('active') ? 'transparent' : document.getElementById('fill-color-picker').value
+            fill: sc,
+            backgroundColor: fc
         });
         canvas.add(t).setActiveObject(t);
     }
@@ -248,19 +270,19 @@ document.getElementById('stroke-color-picker').oninput = updateSettings;
 document.getElementById('fill-color-picker').oninput = updateSettings;
 document.getElementById('stroke-width').onchange = updateSettings;
 
-// Actions
 document.getElementById('action-save').onclick = () => {
-    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'save', data: { base64: canvas.toDataURL({ format: 'png', multiplier: 2 / zoomLevel }) } }));
+    const data = canvas.toDataURL({ format: 'png', multiplier: 1 / canvas.getZoom() });
+    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'save', data: { base64: data } }));
 };
 document.getElementById('action-copy').onclick = () => {
-    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'copy', data: { base64: canvas.toDataURL({ format: 'png', multiplier: 2 / zoomLevel }) } }));
+    const data = canvas.toDataURL({ format: 'png', multiplier: 1 / canvas.getZoom() });
+    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'copy', data: { base64: data } }));
 };
 document.getElementById('action-restore').onclick = () => {
     canvas.getObjects().forEach(obj => { if (obj !== originalImage) canvas.remove(obj); });
     canvas.renderAll();
 };
 
-// OCR
 document.getElementById('tool-ocr').onclick = async () => {
     const btn = document.getElementById('tool-ocr');
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
@@ -271,10 +293,9 @@ document.getElementById('tool-ocr').onclick = async () => {
         const old = document.querySelector('.ocr-layer'); if (old) old.remove();
         const layer = document.createElement('div'); layer.className = 'ocr-layer';
         document.querySelector('.canvas-wrapper').appendChild(layer);
-        const s = originalImage.scaleX;
         blocks.forEach(b => b.lines.forEach(l => l.words.forEach(w => {
             const box = document.createElement('div'); box.className = 'ocr-text-box'; box.textContent = w.text;
-            Object.assign(box.style, { left: (w.bbox.x0*s)+'px', top: (w.bbox.y0*s)+'px', width: ((w.bbox.x1-w.bbox.x0)*s)+'px', height: ((w.bbox.y1-w.bbox.y0)*s)+'px', fontSize: ((w.bbox.y1-w.bbox.y0)*s*0.8)+'px' });
+            Object.assign(box.style, { left: w.bbox.x0+'px', top: w.bbox.y0+'px', width: (w.bbox.x1-w.bbox.x0)+'px', height: (w.bbox.y1-w.bbox.y0)+'px', fontSize: ((w.bbox.y1-w.bbox.y0)*0.8)+'px' });
             layer.appendChild(box);
         })));
         btn.innerHTML = '<i class="fas fa-expand"></i> Live Text';

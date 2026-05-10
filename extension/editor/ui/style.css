@@ -59,7 +59,7 @@ button i { font-size: 15px; }
 }
 
 .mini-btn { width: 24px; height: 24px; padding: 0; margin-left: 2px; }
-.mini-btn.active { color: var(--mac-danger); background: rgba(255,0,0,0.1); }
+.mini-btn.active { color: white; background: var(--mac-accent); }
 .mini-btn i { font-size: 10px; }
 
 .danger-btn:hover { background: var(--mac-danger); color: white; }
@@ -78,11 +78,10 @@ select option { background: #2a2a2a; color: white !important; }
 #canvas-container {
     flex: 1; display: flex; align-items: center; justify-content: center;
     background: radial-gradient(circle, #222 0%, #000 100%); 
-    overflow: auto; cursor: grab;
+    overflow: auto;
 }
-#canvas-container:active { cursor: grabbing; }
 
-.canvas-wrapper { position: relative; box-shadow: 0 40px 100px rgba(0,0,0,0.9); transition: transform 0.1s ease-out; transform-origin: center center; }
+.canvas-wrapper { position: relative; box-shadow: 0 40px 100px rgba(0,0,0,0.9); transform-origin: top left; }
 
 .primary-btn { background: var(--mac-accent); font-weight: 600; padding: 0 16px; }
 .secondary-btn { background: rgba(255,255,255,0.08); gap: 6px; padding: 0 12px; font-size: 13px; }
