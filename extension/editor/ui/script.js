@@ -1,6 +1,7 @@
 let canvas;
 let currentTool = 'draw';
 let originalImage;
+let currentBase64;
 let isDrawing = false;
 let origX, origY, activeShape;
 let zoomLevel = 1;
@@ -8,7 +9,10 @@ let zoomLevel = 1;
 const TOOLS = { HAND: 'hand', DRAW: 'draw', RECT: 'rect', CIRCLE: 'circle', ARROW: 'arrow', TEXT: 'text', BLUR: 'blur' };
 
 window.handleMessage = function(payload) {
-    if (payload.action === 'init') initCanvas(payload.data.imageBase64);
+    if (payload.action === 'init') {
+        currentBase64 = payload.data.imageBase64;
+        initCanvas(currentBase64);
+    }
 };
 
 function initCanvas(base64) {
@@ -45,7 +49,6 @@ function initCanvas(base64) {
         
         zoomLevel = initialZoom;
         
-        // Center the image
         const vpt = canvas.viewportTransform.slice();
         vpt[0] = zoomLevel;
         vpt[3] = zoomLevel;
@@ -73,6 +76,19 @@ function updateOCRLayer() {
     const vpt = canvas.viewportTransform;
     layer.style.transform = `matrix(${vpt[0]}, ${vpt[1]}, ${vpt[2]}, ${vpt[3]}, ${vpt[4]}, ${vpt[5]})`;
     layer.style.transformOrigin = '0 0';
+}
+
+function switchTool(toolId) {
+    const btn = document.getElementById('tool-' + toolId);
+    if (!btn) return;
+    
+    document.querySelectorAll('button[id^="tool-"]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentTool = toolId;
+    
+    canvas.isDrawingMode = (currentTool === TOOLS.DRAW);
+    canvas.selection = (currentTool !== TOOLS.DRAW);
+    canvas.defaultCursor = currentTool === TOOLS.HAND ? 'grab' : 'default';
 }
 
 function updateSettings() {
@@ -145,19 +161,10 @@ function createArrow(points) {
 
 function setupInteraction() {
     canvas.on('mouse:down', function(o) {
-        // Core Logic for Hand tool vs Drawing tools
+        if (o.e.button !== 0) return;
         const target = canvas.findTarget(o.e);
-        
-        // If Hand mode is active and we clicked on an object, let Fabric handle movement (default)
-        if (currentTool === TOOLS.HAND && target && target !== originalImage) {
-            return; 
-        }
-
-        // If in Drawing Mode or clicked on an object in other modes, don't start a new shape
+        if (currentTool === TOOLS.HAND && target && target !== originalImage) return;
         if (canvas.isDrawingMode || (currentTool !== TOOLS.HAND && target)) return;
-        
-        // At this point, we are either in a shape tool clicking on background, 
-        // OR in Hand mode clicking on background (Hand mode panning handled in setupZoomAndPan)
         if (currentTool === TOOLS.HAND) return;
 
         isDrawing = true;
@@ -194,8 +201,15 @@ function setupInteraction() {
     });
 
     canvas.on('mouse:up', () => { 
-        if (isDrawing && activeShape && currentTool === TOOLS.BLUR) refreshPixelate(activeShape);
+        if (isDrawing) {
+            if (activeShape && currentTool === TOOLS.BLUR) refreshPixelate(activeShape);
+            setTimeout(() => switchTool(TOOLS.HAND), 100);
+        }
         isDrawing = false; activeShape = null; 
+    });
+
+    canvas.on('path:created', () => {
+        setTimeout(() => switchTool(TOOLS.HAND), 100);
     });
 
     canvas.on('object:moving', (e) => refreshPixelate(e.target));
@@ -220,24 +234,32 @@ function setupInteraction() {
 
 function setupZoomAndPan() {
     canvas.on('mouse:wheel', function(opt) {
-        const delta = opt.e.deltaY;
-        let zoom = canvas.getZoom();
-        zoom *= 0.999 ** delta;
-        if (zoom > 20) zoom = 20;
-        if (zoom < 0.01) zoom = 0.01;
-        
-        // Zoom relative to pointer
-        canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
-        zoomLevel = zoom;
-        updateZoomDisplay();
-        opt.e.preventDefault();
-        opt.e.stopPropagation();
+        const e = opt.e;
+        if (e.ctrlKey) {
+            const delta = e.deltaY;
+            let zoom = canvas.getZoom();
+            zoom *= 0.999 ** delta;
+            if (zoom > 20) zoom = 20;
+            if (zoom < 0.01) zoom = 0.01;
+            canvas.zoomToPoint({ x: e.offsetX, y: e.offsetY }, zoom);
+            zoomLevel = zoom;
+            updateZoomDisplay();
+        } else {
+            const vpt = this.viewportTransform;
+            vpt[4] -= e.deltaX;
+            vpt[5] -= e.deltaY;
+            this.requestRenderAll();
+            updateOCRLayer();
+        }
+        e.preventDefault();
+        e.stopPropagation();
     });
 
     let lastX, lastY;
     canvas.on('mouse:down', function(opt) {
         const target = canvas.findTarget(opt.e);
-        if ((opt.e.altKey || currentTool === TOOLS.HAND) && (!target || target === originalImage)) {
+        const isMiddleClick = opt.e.button === 1;
+        if ((opt.e.altKey || currentTool === TOOLS.HAND || isMiddleClick) && (!target || target === originalImage)) {
             this.isDragging = true;
             this.selection = false;
             lastX = opt.e.clientX;
@@ -277,10 +299,8 @@ function setupZoomAndPan() {
     document.getElementById('zoom-reset').onclick = () => {
         const padding = 60;
         zoomLevel = Math.min((canvas.width - padding) / originalImage.width, (canvas.height - padding) / originalImage.height);
-        
         const vpt = canvas.viewportTransform.slice();
-        vpt[0] = zoomLevel;
-        vpt[3] = zoomLevel;
+        vpt[0] = zoomLevel; vpt[3] = zoomLevel;
         vpt[4] = (canvas.width / 2) - (originalImage.width * zoomLevel / 2);
         vpt[5] = (canvas.height / 2) - (originalImage.height * zoomLevel / 2);
         canvas.setViewportTransform(vpt);
@@ -290,13 +310,8 @@ function setupZoomAndPan() {
 
 document.querySelectorAll('button[id^="tool-"]').forEach(btn => btn.addEventListener('click', () => {
     if (btn.id === 'tool-ocr') return;
-    document.querySelectorAll('button[id^="tool-"]').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentTool = btn.id.replace('tool-', '');
-    
-    canvas.isDrawingMode = (currentTool === TOOLS.DRAW);
-    canvas.selection = (currentTool !== TOOLS.DRAW);
-    canvas.defaultCursor = currentTool === TOOLS.HAND ? 'grab' : 'default';
+    const toolId = btn.id.replace('tool-', '');
+    switchTool(toolId);
 
     if (currentTool === TOOLS.TEXT) {
         const sc = document.getElementById('stroke-color-picker').value;
@@ -306,20 +321,15 @@ document.querySelectorAll('button[id^="tool-"]').forEach(btn => btn.addEventList
             left: (originalImage.width / 2), 
             top: (originalImage.height / 2), 
             fontFamily: 'SF Pro Display, Segoe UI, sans-serif', 
-            fill: sc,
-            backgroundColor: fc,
-            originX: 'center',
-            originY: 'center'
+            fill: sc, backgroundColor: fc, originX: 'center', originY: 'center'
         });
         canvas.add(t).setActiveObject(t);
         canvas.renderAll();
+        setTimeout(() => switchTool(TOOLS.HAND), 100);
     }
 }));
 
-document.getElementById('btn-no-fill').onclick = function() { 
-    this.classList.toggle('active'); 
-    updateSettings(); 
-};
+document.getElementById('btn-no-fill').onclick = function() { this.classList.toggle('active'); updateSettings(); };
 document.getElementById('stroke-color-picker').oninput = updateSettings;
 document.getElementById('fill-color-picker').oninput = updateSettings;
 document.getElementById('stroke-width').onchange = updateSettings;
@@ -328,14 +338,7 @@ function getFinalDataUrl() {
     canvas.discardActiveObject().renderAll();
     const vpt = canvas.viewportTransform.slice();
     canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
-    const dataURL = canvas.toDataURL({
-        format: 'png',
-        left: 0,
-        top: 0,
-        width: originalImage.width,
-        height: originalImage.height,
-        multiplier: 1
-    });
+    const dataURL = canvas.toDataURL({ format: 'png', left: 0, top: 0, width: originalImage.width, height: originalImage.height, multiplier: 1 });
     canvas.setViewportTransform(vpt);
     return dataURL;
 }
@@ -343,9 +346,14 @@ function getFinalDataUrl() {
 document.getElementById('action-save').onclick = () => {
     window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'save', data: { base64: getFinalDataUrl() } }));
 };
-document.getElementById('action-copy').onclick = () => {
+
+document.getElementById('action-copy').onclick = function() {
     window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'copy', data: { base64: getFinalDataUrl() } }));
+    const btn = this; const originalHTML = btn.innerHTML;
+    btn.classList.add('success'); btn.innerHTML = '<i class="fas fa-check"></i> Copied';
+    setTimeout(() => { btn.classList.remove('success'); btn.innerHTML = originalHTML; }, 2000);
 };
+
 document.getElementById('action-restore').onclick = () => {
     canvas.getObjects().forEach(obj => { if (obj !== originalImage) canvas.remove(obj); });
     canvas.renderAll();
@@ -353,22 +361,56 @@ document.getElementById('action-restore').onclick = () => {
 
 document.getElementById('tool-ocr').onclick = async () => {
     const btn = document.getElementById('tool-ocr');
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    const originalContent = btn.innerHTML;
+    if (!currentBase64) { btn.innerHTML = '<i class="fas fa-times"></i> No Data'; setTimeout(() => btn.innerHTML = originalContent, 2000); return; }
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+    btn.disabled = true;
+
     try {
-        const worker = await Tesseract.createWorker('eng');
-        const { data: { blocks } } = await worker.recognize(originalImage.toDataURL());
-        await worker.terminate();
-        const old = document.querySelector('.ocr-layer'); if (old) old.remove();
-        const layer = document.createElement('div'); layer.className = 'ocr-layer';
-        layer.style.width = originalImage.width + 'px';
-        layer.style.height = originalImage.height + 'px';
-        document.querySelector('.canvas-wrapper').appendChild(layer);
-        blocks.forEach(b => b.lines.forEach(l => l.words.forEach(w => {
-            const box = document.createElement('div'); box.className = 'ocr-text-box'; box.textContent = w.text;
-            Object.assign(box.style, { left: w.bbox.x0+'px', top: w.bbox.y0+'px', width: (w.bbox.x1-w.bbox.x0)+'px', height: (w.bbox.y1-w.bbox.y0)+'px', fontSize: ((w.bbox.y1-w.bbox.y0)*0.8)+'px' });
-            layer.appendChild(box);
-        })));
-        updateOCRLayer();
-        btn.innerHTML = '<i class="fas fa-expand"></i> Live Text';
-    } catch (e) { btn.innerHTML = '<i class="fas fa-times"></i> Error'; }
+        const result = await Tesseract.recognize(currentBase64, 'eng', {
+            logger: m => {
+                if (m.status === 'loading tesseract core') btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Core...';
+                else if (m.status === 'loading language traineddata') btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Lang...';
+                else if (m.status === 'initializing api') btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Init...';
+                else if (m.status === 'recognizing text') btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${Math.round(m.progress * 100)}%`;
+            }
+        });
+
+        if (!result || !result.data) throw new Error('OCR Failed');
+        
+        const fullText = result.data.text;
+        document.getElementById('ocr-text-res').value = fullText;
+        document.getElementById('ocr-toast').classList.remove('hidden');
+        
+        // Auto-copy to clipboard
+        window.webkit.messageHandlers.app.postMessage(JSON.stringify({ 
+            action: 'copy_text', 
+            data: { text: fullText } 
+        }));
+
+        btn.innerHTML = originalContent;
+    } catch (e) { 
+        console.error('OCR Error:', e);
+        btn.innerHTML = `<i class="fas fa-times"></i> ${e.message || 'Error'}`;
+        setTimeout(() => btn.innerHTML = originalContent, 3000);
+    } finally {
+        btn.disabled = false;
+    }
+};
+
+document.getElementById('close-toast').onclick = () => {
+    document.getElementById('ocr-toast').classList.add('hidden');
+};
+
+document.getElementById('copy-toast-btn').onclick = () => {
+    const text = document.getElementById('ocr-text-res').value;
+    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ 
+        action: 'copy_text', 
+        data: { text: text } 
+    }));
+    
+    const btn = document.getElementById('copy-toast-btn');
+    const originalContent = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+    setTimeout(() => btn.innerHTML = originalContent, 2000);
 };

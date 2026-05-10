@@ -1,80 +1,141 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Screenshot Editor Pro</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-</head>
-<body>
-    <div id="app">
-        <header class="toolbar">
-            <div class="left-tools">
-                <div class="tool-group">
-                    <button id="tool-hand" title="Move (Hand)"><i class="fas fa-hand-paper"></i></button>
-                    <button id="tool-draw" class="active" title="Sketch"><i class="fas fa-pencil-alt"></i></button>
-                    <button id="tool-rect" title="Rectangle"><i class="far fa-square"></i></button>
-                    <button id="tool-circle" title="Circle"><i class="far fa-circle"></i></button>
-                    <button id="tool-arrow" title="Arrow"><i class="fas fa-long-arrow-alt-right"></i></button>
-                    <button id="tool-text" title="Text"><i class="fas fa-font"></i></button>
-                    <button id="tool-blur" title="Pixelate"><i class="fas fa-th"></i></button>
-                </div>
-                
-                <div class="divider"></div>
-                
-                <div class="tool-group">
-                    <div class="color-control" title="Stroke Color">
-                        <i class="fas fa-font"></i>
-                        <input type="color" id="stroke-color-picker" value="#ff3b30">
-                        <div class="color-bar" id="stroke-bar"></div>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Screenshot Editor Pro</title>
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+        />
+        <link rel="stylesheet" href="style.css" />
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    </head>
+    <body>
+        <div id="app">
+            <header class="toolbar">
+                <div class="left-tools">
+                    <div class="tool-group">
+                        <button id="tool-hand" title="Move (Hand)">
+                            <i class="fas fa-hand-paper"></i>
+                        </button>
+                        <button id="tool-draw" class="active" title="Sketch">
+                            <i class="fas fa-pencil-alt"></i>
+                        </button>
+                        <button id="tool-rect" title="Rectangle">
+                            <i class="far fa-square"></i>
+                        </button>
+                        <button id="tool-circle" title="Circle">
+                            <i class="far fa-circle"></i>
+                        </button>
+                        <button id="tool-arrow" title="Arrow">
+                            <i class="fas fa-long-arrow-alt-right"></i>
+                        </button>
+                        <button id="tool-text" title="Text">
+                            <i class="fas fa-font"></i>
+                        </button>
+                        <button id="tool-blur" title="Pixelate">
+                            <i class="fas fa-th"></i>
+                        </button>
                     </div>
-                    <div class="color-control" title="Fill Color">
-                        <i class="fas fa-fill-drip"></i>
-                        <input type="color" id="fill-color-picker" value="#000000">
-                        <div class="color-bar" id="fill-bar"></div>
+
+                    <div class="divider"></div>
+
+                    <div class="tool-group">
+                        <div class="color-control" title="Stroke Color">
+                            <i class="fas fa-font"></i>
+                            <input
+                                type="color"
+                                id="stroke-color-picker"
+                                value="#ff3b30"
+                            />
+                            <div class="color-bar" id="stroke-bar"></div>
+                        </div>
+                        <div class="color-control" title="Fill Color">
+                            <i class="fas fa-fill-drip"></i>
+                            <input
+                                type="color"
+                                id="fill-color-picker"
+                                value="#000000"
+                            />
+                            <div class="color-bar" id="fill-bar"></div>
+                        </div>
+                        <button id="btn-no-fill" class="active" title="No Fill">
+                            <i class="fas fa-slash"></i>
+                        </button>
                     </div>
-                    <button id="btn-no-fill" class="active" title="No Fill"><i class="fas fa-slash"></i></button>
+
+                    <div class="tool-group">
+                        <select id="stroke-width">
+                            <option value="3">Thin</option>
+                            <option value="6" selected>Medium</option>
+                            <option value="12">Thick</option>
+                        </select>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <button
+                        id="action-delete"
+                        class="danger-btn"
+                        title="Delete (Del)"
+                    >
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
                 </div>
 
-                <div class="tool-group">
-                    <select id="stroke-width">
-                        <option value="3">Thin</option>
-                        <option value="6" selected>Medium</option>
-                        <option value="12">Thick</option>
-                    </select>
+                <div class="right-tools">
+                    <div class="tool-group zoom-controls">
+                        <button id="zoom-out">
+                            <i class="fas fa-search-minus"></i>
+                        </button>
+                        <span id="zoom-level">100%</span>
+                        <button id="zoom-in">
+                            <i class="fas fa-search-plus"></i>
+                        </button>
+                        <button id="zoom-reset" title="Fit to Screen">
+                            <i class="fas fa-compress-arrows-alt"></i>
+                        </button>
+                    </div>
+                    <div class="divider"></div>
+                    <button id="tool-ocr" class="secondary-btn">
+                        <i class="fas fa-expand"></i>Copy text
+                    </button>
+                    <button
+                        id="action-restore"
+                        class="secondary-btn"
+                        title="Revert"
+                    >
+                        <i class="fas fa-undo"></i>
+                    </button>
+                    <div class="divider"></div>
+                    <button id="action-copy" class="secondary-btn">
+                        <i class="far fa-copy"></i> Copy
+                    </button>
+                    <button id="action-save" class="primary-btn">Done</button>
                 </div>
+            </header>
+            <main id="canvas-container">
+                <div class="canvas-wrapper">
+                    <canvas id="editor-canvas"></canvas>
+                </div>
+            </main>
+        </div>
 
-                <div class="divider"></div>
-                
-                <button id="action-delete" class="danger-btn" title="Delete (Del)">
-                    <i class="fas fa-trash-alt"></i>
+        <div id="ocr-toast" class="toast hidden">
+            <div class="toast-header">
+                <span>Detected Text</span>
+                <button id="close-toast"><i class="fas fa-times"></i></button>
+            </div>
+            <textarea id="ocr-text-res" spellcheck="false"></textarea>
+            <div class="toast-footer">
+                <button id="copy-toast-btn" class="primary-btn">
+                    <i class="far fa-copy"></i> Copy Again
                 </button>
             </div>
+        </div>
 
-            <div class="right-tools">
-                <div class="tool-group zoom-controls">
-                    <button id="zoom-out"><i class="fas fa-search-minus"></i></button>
-                    <span id="zoom-level">100%</span>
-                    <button id="zoom-in"><i class="fas fa-search-plus"></i></button>
-                    <button id="zoom-reset" title="Fit to Screen"><i class="fas fa-compress-arrows-alt"></i></button>
-                </div>
-                <div class="divider"></div>
-                <button id="tool-ocr" class="secondary-btn"><i class="fas fa-expand"></i> Live Text</button>
-                <button id="action-restore" class="secondary-btn" title="Revert"><i class="fas fa-undo"></i></button>
-                <div class="divider"></div>
-                <button id="action-copy" class="secondary-btn"><i class="far fa-copy"></i> Copy</button>
-                <button id="action-save" class="primary-btn">Done</button>
-            </div>
-        </header>
-        <main id="canvas-container">
-            <div class="canvas-wrapper">
-                <canvas id="editor-canvas"></canvas>
-            </div>
-        </main>
-    </div>
-    <script src="script.js"></script>
-</body>
+        <script src="script.js"></script>
+    </body>
 </html>

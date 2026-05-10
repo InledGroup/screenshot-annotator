@@ -35,6 +35,12 @@ function createEditorWindow(imagePath) {
         user_content_manager: contentManager
     });
     
+    const settings = webView.get_settings();
+    settings.set_enable_write_console_messages_to_stdout(true);
+    settings.set_enable_developer_extras(true);
+    settings.set_allow_universal_access_from_file_urls(true);
+    settings.set_allow_file_access_from_file_urls(true);
+
     // Transparent background for webview
     const transparentColor = new Gdk.RGBA({ red: 0, green: 0, blue: 0, alpha: 0 });
     webView.set_background_color(transparentColor);
@@ -55,6 +61,8 @@ function createEditorWindow(imagePath) {
             GdkPixbuf.Pixbuf.new_from_stream_async(Gio.MemoryInputStream.new_from_bytes(new GLib.Bytes(bytes)), null, (s, res) => {
                 Gtk.Clipboard.get(Gdk.Atom.intern('CLIPBOARD', false)).set_image(GdkPixbuf.Pixbuf.new_from_stream_finish(res));
             });
+        } else if (action === 'copy_text') {
+            Gtk.Clipboard.get(Gdk.Atom.intern('CLIPBOARD', false)).set_text(data.text, -1);
         } else if (action === 'close') win.destroy();
     });
 
