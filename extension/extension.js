@@ -76,24 +76,42 @@ export default class ScreenshotAnnotatorExtension extends Extension {
         this._monitor = screenshotDir.monitor_directory(Gio.FileMonitorFlags.NONE, null);
         this._monitor.connect('changed', (monitor, file, otherFile, eventType) => {
             const path = file.get_path();
+            const fileName = file.get_basename();
+            const now = Date.now();
             
+            if (fileName.startsWith('.')) return;
+
+            // Check ignore list immediately
             if (this._ignoredPaths.has(path)) {
                 const expiry = this._ignoredPaths.get(path);
-                if (Date.now() < expiry) return;
+                if (now < expiry) {
+                    // Refresh ignore timer on activity to stay ahead of the system events
+                    this._ignoredPaths.set(path, now + 5000);
+                    return;
+                }
                 this._ignoredPaths.delete(path);
             }
 
+            // Event 1 = CREATED, Event 3 = CHANGES_DONE_HINT
             if (eventType === Gio.FileMonitorEvent.CREATED || eventType === Gio.FileMonitorEvent.CHANGES_DONE_HINT) {
                 if (path.match(/\.(png|jpg|jpeg)$/i)) {
-                    const now = Date.now();
-                    if (now - this._lastLaunchTime < 2000) return;
-                    this._lastLaunchTime = now;
+                    // Strict debounce: don't even look at the file if we launched anything in the last 3s
+                    if (now - this._lastLaunchTime < 3000) return;
+
+                    // Double-check ignore map again right before triggering
+                    if (this._ignoredPaths.has(path)) return;
 
                     console.log(`[Screenshot Annotator] New screenshot detected: ${path}`);
-                    this._ignoredPaths.set(path, Date.now() + 10000);
+                    
+                    // CRITICAL: Block the path IMMEDIATELY before doing anything else
+                    this._ignoredPaths.set(path, now + 15000);
+                    this._lastLaunchTime = now;
 
-                    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 800, () => {
-                        this._launchEditor(path);
+                    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                        // Final check after timeout to ensure no other event slipped through
+                        if (this._ignoredPaths.get(path) > (Date.now() + 10000)) {
+                             this._launchEditor(path);
+                        }
                         return GLib.SOURCE_REMOVE;
                     });
                 }
@@ -106,10 +124,20 @@ export default class ScreenshotAnnotatorExtension extends Extension {
         const argv = ['gjs', '-m', editorPath, imagePath];
         const env = GLib.get_environ();
         
+        console.log(`[Screenshot Annotator] Launching editor: ${imagePath}`);
         try {
-            GLib.spawn_async(null, argv, env, GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD, null);
+            let [success, pid] = GLib.spawn_async(null, argv, env, GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD, null);
+            
+            if (success) {
+                GLib.child_watch_add(GLib.PRIORITY_DEFAULT, pid, (pid, status) => {
+                    console.log(`[Screenshot Annotator] Editor closed. Ignoring ${imagePath} for 10s more.`);
+                    this._ignoredPaths.set(imagePath, Date.now() + 10000);
+                    GLib.spawn_close_pid(pid);
+                });
+            }
         } catch (e) {
             console.error(`[Screenshot Annotator] Launch error: ${e.message}`);
+            this._ignoredPaths.delete(imagePath); // Clear on error
         }
     }
 }

@@ -15,27 +15,45 @@ function initCanvas(base64) {
     if (!base64) return;
     if (canvas) canvas.dispose();
 
+    const container = document.getElementById('canvas-container');
     canvas = new fabric.Canvas('editor-canvas', {
-        isDrawingMode: true, enableRetinaScaling: true, selection: true, preserveObjectStacking: true
+        width: container.clientWidth,
+        height: container.clientHeight,
+        isDrawingMode: true,
+        enableRetinaScaling: true,
+        selection: true,
+        preserveObjectStacking: true,
+        backgroundColor: 'transparent'
+    });
+
+    window.addEventListener('resize', () => {
+        if (!canvas) return;
+        canvas.setDimensions({ width: container.clientWidth, height: container.clientHeight });
+        canvas.renderAll();
     });
 
     fabric.Image.fromURL(base64, function(img) {
         if (!img) return;
         originalImage = img;
         
-        const padding = 60;
-        const initialZoom = Math.min((window.innerWidth - padding) / img.width, (window.innerHeight - 110 - padding) / img.height);
-        
-        zoomLevel = initialZoom;
         img.set({ originX: 'left', originY: 'top', selectable: false, evented: false });
-        
-        canvas.setDimensions({ width: img.width, height: img.height });
-        canvas.setZoom(zoomLevel);
-        
         canvas.add(img);
         canvas.sendToBack(img);
-        canvas.renderAll();
+
+        const padding = 60;
+        const initialZoom = Math.min((canvas.width - padding) / img.width, (canvas.height - padding) / img.height);
         
+        zoomLevel = initialZoom;
+        
+        // Center the image
+        const vpt = canvas.viewportTransform.slice();
+        vpt[0] = zoomLevel;
+        vpt[3] = zoomLevel;
+        vpt[4] = (canvas.width / 2) - (img.width * zoomLevel / 2);
+        vpt[5] = (canvas.height / 2) - (img.height * zoomLevel / 2);
+        canvas.setViewportTransform(vpt);
+        
+        canvas.renderAll();
         updateZoomDisplay();
         updateSettings();
     });
@@ -46,6 +64,15 @@ function initCanvas(base64) {
 
 function updateZoomDisplay() {
     document.getElementById('zoom-level').textContent = Math.round(zoomLevel * 100) + '%';
+    updateOCRLayer();
+}
+
+function updateOCRLayer() {
+    const layer = document.querySelector('.ocr-layer');
+    if (!layer || !canvas) return;
+    const vpt = canvas.viewportTransform;
+    layer.style.transform = `matrix(${vpt[0]}, ${vpt[1]}, ${vpt[2]}, ${vpt[3]}, ${vpt[4]}, ${vpt[5]})`;
+    layer.style.transformOrigin = '0 0';
 }
 
 function updateSettings() {
@@ -198,6 +225,8 @@ function setupZoomAndPan() {
         zoom *= 0.999 ** delta;
         if (zoom > 20) zoom = 20;
         if (zoom < 0.01) zoom = 0.01;
+        
+        // Zoom relative to pointer
         canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
         zoomLevel = zoom;
         updateZoomDisplay();
@@ -208,7 +237,6 @@ function setupZoomAndPan() {
     let lastX, lastY;
     canvas.on('mouse:down', function(opt) {
         const target = canvas.findTarget(opt.e);
-        // Pan ONLY if we clicked on the background/image AND (Alt key is pressed OR Hand tool is active)
         if ((opt.e.altKey || currentTool === TOOLS.HAND) && (!target || target === originalImage)) {
             this.isDragging = true;
             this.selection = false;
@@ -226,23 +254,36 @@ function setupZoomAndPan() {
             this.requestRenderAll();
             lastX = e.clientX;
             lastY = e.clientY;
+            updateOCRLayer();
         }
     });
     canvas.on('mouse:up', function() {
         this.setViewportTransform(this.viewportTransform);
         this.isDragging = false;
-        // Selection remains true for Hand tool so you can still pick objects to move them
         this.selection = (currentTool !== TOOLS.DRAW);
         canvas.defaultCursor = currentTool === TOOLS.HAND ? 'grab' : 'default';
     });
 
-    document.getElementById('zoom-in').onclick = () => { zoomLevel *= 1.2; canvas.setZoom(zoomLevel); updateZoomDisplay(); };
-    document.getElementById('zoom-out').onclick = () => { zoomLevel /= 1.2; canvas.setZoom(zoomLevel); updateZoomDisplay(); };
+    document.getElementById('zoom-in').onclick = () => {
+        zoomLevel *= 1.2;
+        canvas.zoomToPoint({ x: canvas.width / 2, y: canvas.height / 2 }, zoomLevel);
+        updateZoomDisplay();
+    };
+    document.getElementById('zoom-out').onclick = () => {
+        zoomLevel /= 1.2;
+        canvas.zoomToPoint({ x: canvas.width / 2, y: canvas.height / 2 }, zoomLevel);
+        updateZoomDisplay();
+    };
     document.getElementById('zoom-reset').onclick = () => {
         const padding = 60;
-        zoomLevel = Math.min((window.innerWidth - padding) / originalImage.width, (window.innerHeight - 110 - padding) / originalImage.height);
-        canvas.setZoom(zoomLevel);
-        canvas.setViewportTransform([zoomLevel, 0, 0, zoomLevel, 0, 0]);
+        zoomLevel = Math.min((canvas.width - padding) / originalImage.width, (canvas.height - padding) / originalImage.height);
+        
+        const vpt = canvas.viewportTransform.slice();
+        vpt[0] = zoomLevel;
+        vpt[3] = zoomLevel;
+        vpt[4] = (canvas.width / 2) - (originalImage.width * zoomLevel / 2);
+        vpt[5] = (canvas.height / 2) - (originalImage.height * zoomLevel / 2);
+        canvas.setViewportTransform(vpt);
         updateZoomDisplay();
     };
 }
@@ -254,7 +295,6 @@ document.querySelectorAll('button[id^="tool-"]').forEach(btn => btn.addEventList
     currentTool = btn.id.replace('tool-', '');
     
     canvas.isDrawingMode = (currentTool === TOOLS.DRAW);
-    // Hand tool needs selection to be able to "grab" objects
     canvas.selection = (currentTool !== TOOLS.DRAW);
     canvas.defaultCursor = currentTool === TOOLS.HAND ? 'grab' : 'default';
 
@@ -263,11 +303,13 @@ document.querySelectorAll('button[id^="tool-"]').forEach(btn => btn.addEventList
         const noFill = document.getElementById('btn-no-fill').classList.contains('active');
         const fc = noFill ? 'transparent' : document.getElementById('fill-color-picker').value;
         const t = new fabric.IText('Text', { 
-            left: (canvas.width / 2) / canvas.getZoom(), 
-            top: (canvas.height / 2) / canvas.getZoom(), 
+            left: (originalImage.width / 2), 
+            top: (originalImage.height / 2), 
             fontFamily: 'SF Pro Display, Segoe UI, sans-serif', 
             fill: sc,
-            backgroundColor: fc
+            backgroundColor: fc,
+            originX: 'center',
+            originY: 'center'
         });
         canvas.add(t).setActiveObject(t);
         canvas.renderAll();
@@ -282,13 +324,27 @@ document.getElementById('stroke-color-picker').oninput = updateSettings;
 document.getElementById('fill-color-picker').oninput = updateSettings;
 document.getElementById('stroke-width').onchange = updateSettings;
 
+function getFinalDataUrl() {
+    canvas.discardActiveObject().renderAll();
+    const vpt = canvas.viewportTransform.slice();
+    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+    const dataURL = canvas.toDataURL({
+        format: 'png',
+        left: 0,
+        top: 0,
+        width: originalImage.width,
+        height: originalImage.height,
+        multiplier: 1
+    });
+    canvas.setViewportTransform(vpt);
+    return dataURL;
+}
+
 document.getElementById('action-save').onclick = () => {
-    const data = canvas.toDataURL({ format: 'png', multiplier: 1 / canvas.getZoom() });
-    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'save', data: { base64: data } }));
+    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'save', data: { base64: getFinalDataUrl() } }));
 };
 document.getElementById('action-copy').onclick = () => {
-    const data = canvas.toDataURL({ format: 'png', multiplier: 1 / canvas.getZoom() });
-    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'copy', data: { base64: data } }));
+    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'copy', data: { base64: getFinalDataUrl() } }));
 };
 document.getElementById('action-restore').onclick = () => {
     canvas.getObjects().forEach(obj => { if (obj !== originalImage) canvas.remove(obj); });
@@ -304,12 +360,15 @@ document.getElementById('tool-ocr').onclick = async () => {
         await worker.terminate();
         const old = document.querySelector('.ocr-layer'); if (old) old.remove();
         const layer = document.createElement('div'); layer.className = 'ocr-layer';
+        layer.style.width = originalImage.width + 'px';
+        layer.style.height = originalImage.height + 'px';
         document.querySelector('.canvas-wrapper').appendChild(layer);
         blocks.forEach(b => b.lines.forEach(l => l.words.forEach(w => {
             const box = document.createElement('div'); box.className = 'ocr-text-box'; box.textContent = w.text;
             Object.assign(box.style, { left: w.bbox.x0+'px', top: w.bbox.y0+'px', width: (w.bbox.x1-w.bbox.x0)+'px', height: (w.bbox.y1-w.bbox.y0)+'px', fontSize: ((w.bbox.y1-w.bbox.y0)*0.8)+'px' });
             layer.appendChild(box);
         })));
+        updateOCRLayer();
         btn.innerHTML = '<i class="fas fa-expand"></i> Live Text';
     } catch (e) { btn.innerHTML = '<i class="fas fa-times"></i> Error'; }
 };
