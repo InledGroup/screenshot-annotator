@@ -1,11 +1,9 @@
 {
   "name": "Screenshot Annotator",
-  "description": "Automatically opens a macOS-like editor when a screenshot is taken.",
-  "uuid": "screenshot-annotator@gemini.cli",
-  "shell-version": [
-    "45", "46", "47", "48", "49", "50"
-  ],
+  "description": "Editor, paint, OCR... all in one screenshot editor.",
+  "uuid": "screenshot-annotator@inled.es",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
   "settings-schema": "org.gnome.shell.extensions.screenshot-annotator",
   "version": 35,
-  "url": ""
+  "url": "https://github.com/InledGroup/screenshot-annotator"
 }

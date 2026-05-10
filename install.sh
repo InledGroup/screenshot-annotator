@@ -1,7 +1,7 @@
 #!/bin/bash
-UUID="screenshot-annotator@gemini.cli"
+UUID="screenshot-annotator@inled.es"
 DEST_DIR="$HOME/.local/share/gnome-shell/extensions/$UUID"
-ZIP_FILE="screenshot-annotator@gemini.cli.shell-extension.zip"
+ZIP_FILE="screenshot-annotator@inled.es.shell-extension.zip"
 
 echo "🚀 Iniciando instalación de la extensión v28..."
 

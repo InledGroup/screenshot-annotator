@@ -1,5 +1,5 @@
 #!/bin/bash
-OUTPUT="screenshot-annotator@gemini.cli.shell-extension.zip"
+OUTPUT="screenshot-annotator@inled.es.shell-extension.zip"
 echo "📦 Generando paquete V12 (Python ZIP)..."
 rm -f "$OUTPUT"
 cd extension

@@ -367,7 +367,10 @@ document.getElementById('tool-ocr').onclick = async () => {
     btn.disabled = true;
 
     try {
-        const result = await Tesseract.recognize(currentBase64, 'eng', {
+        const worker = await Tesseract.createWorker('eng', 1, {
+            workerPath: 'assets/worker.min.js',
+            corePath: 'assets/tesseract-core.wasm.js',
+            langPath: 'assets',
             logger: m => {
                 if (m.status === 'loading tesseract core') btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Core...';
                 else if (m.status === 'loading language traineddata') btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Lang...';
@@ -375,6 +378,9 @@ document.getElementById('tool-ocr').onclick = async () => {
                 else if (m.status === 'recognizing text') btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${Math.round(m.progress * 100)}%`;
             }
         });
+
+        const result = await worker.recognize(currentBase64);
+        await worker.terminate();
 
         if (!result || !result.data) throw new Error('OCR Failed');
         

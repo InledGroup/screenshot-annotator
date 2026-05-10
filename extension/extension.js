@@ -12,6 +12,8 @@ export default class ScreenshotAnnotatorExtension extends Extension {
         this._monitor = null;
         this._lastLaunchTime = 0;
         this._ignoredPaths = new Map();
+        this._timeouts = new Set();
+        this._childWatches = new Set();
         
         this._settings = this.getSettings();
         // Watch for settings changes to restart monitor
@@ -31,6 +33,12 @@ export default class ScreenshotAnnotatorExtension extends Extension {
             this._settings.disconnect(this._settingsId);
             this._settingsId = 0;
         }
+        
+        for (const t of this._timeouts) GLib.source_remove(t);
+        this._timeouts.clear();
+        for (const w of this._childWatches) GLib.source_remove(w);
+        this._childWatches.clear();
+
         this._settings = null;
         this._ignoredPaths.clear();
     }
@@ -107,13 +115,15 @@ export default class ScreenshotAnnotatorExtension extends Extension {
                     this._ignoredPaths.set(path, now + 15000);
                     this._lastLaunchTime = now;
 
-                    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                    const timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                        this._timeouts.delete(timeoutId);
                         // Final check after timeout to ensure no other event slipped through
                         if (this._ignoredPaths.get(path) > (Date.now() + 10000)) {
                              this._launchEditor(path);
                         }
                         return GLib.SOURCE_REMOVE;
                     });
+                    this._timeouts.add(timeoutId);
                 }
             }
         });
@@ -121,23 +131,47 @@ export default class ScreenshotAnnotatorExtension extends Extension {
 
     _launchEditor(imagePath) {
         const editorPath = GLib.build_filenamev([this.path, 'editor', 'main.js']);
-        const argv = ['gjs', '-m', editorPath, imagePath];
-        const env = GLib.get_environ();
+        const editorFile = Gio.File.new_for_path(editorPath);
         
-        console.log(`[Screenshot Annotator] Launching editor: ${imagePath}`);
+        if (!editorFile.query_exists(null)) {
+            console.error(`[Screenshot Annotator] CRITICAL: Editor script not found at ${editorPath}`);
+            return;
+        }
+
+        console.log(`[Screenshot Annotator] Launching editor: ${editorPath} with image: ${imagePath}`);
+        
         try {
-            let [success, pid] = GLib.spawn_async(null, argv, env, GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD, null);
+            const proc = new Gio.Subprocess({
+                argv: ['gjs', '-m', editorPath, imagePath],
+                flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+            });
+            proc.init(null);
             
-            if (success) {
-                GLib.child_watch_add(GLib.PRIORITY_DEFAULT, pid, (pid, status) => {
-                    console.log(`[Screenshot Annotator] Editor closed. Ignoring ${imagePath} for 10s more.`);
+            proc.wait_check_async(null, (p, res) => {
+                try {
+                    p.wait_check_finish(res);
+                    console.log(`[Screenshot Annotator] Editor process exited successfully.`);
+                } catch (e) {
+                    console.error(`[Screenshot Annotator] Editor process failed: ${e.message}`);
+                } finally {
                     this._ignoredPaths.set(imagePath, Date.now() + 10000);
-                    GLib.spawn_close_pid(pid);
-                });
-            }
+                }
+            });
+
+            // Log stderr to help debugging
+            proc.get_stderr_pipe().read_bytes_async(4096, GLib.PRIORITY_DEFAULT, null, (stream, res) => {
+                try {
+                    const bytes = stream.read_bytes_finish(res);
+                    if (bytes.get_size() > 0) {
+                        const decoder = new TextDecoder();
+                        console.error(`[Screenshot Annotator] Editor STDERR: ${decoder.decode(bytes.toArray())}`);
+                    }
+                } catch (e) {}
+            });
+
         } catch (e) {
-            console.error(`[Screenshot Annotator] Launch error: ${e.message}`);
-            this._ignoredPaths.delete(imagePath); // Clear on error
+            console.error(`[Screenshot Annotator] Spawn error: ${e.message}`);
+            this._ignoredPaths.delete(imagePath);
         }
     }
 }
