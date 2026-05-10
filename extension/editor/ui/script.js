@@ -55,7 +55,6 @@ function updateSettings() {
     const strokeWidth = parseInt(document.getElementById('stroke-width').value);
     const noFill = document.getElementById('btn-no-fill').classList.contains('active');
 
-    // FORCE TRANSPARENCY: If noFill is active, we MUST use transparent
     const actualFill = noFill ? 'transparent' : fillColor;
 
     document.getElementById('stroke-bar').style.backgroundColor = strokeColor;
@@ -119,8 +118,21 @@ function createArrow(points) {
 
 function setupInteraction() {
     canvas.on('mouse:down', function(o) {
-        if (canvas.isDrawingMode || currentTool === TOOLS.HAND || canvas.findTarget(o.e)) return;
+        // Core Logic for Hand tool vs Drawing tools
+        const target = canvas.findTarget(o.e);
         
+        // If Hand mode is active and we clicked on an object, let Fabric handle movement (default)
+        if (currentTool === TOOLS.HAND && target && target !== originalImage) {
+            return; 
+        }
+
+        // If in Drawing Mode or clicked on an object in other modes, don't start a new shape
+        if (canvas.isDrawingMode || (currentTool !== TOOLS.HAND && target)) return;
+        
+        // At this point, we are either in a shape tool clicking on background, 
+        // OR in Hand mode clicking on background (Hand mode panning handled in setupZoomAndPan)
+        if (currentTool === TOOLS.HAND) return;
+
         isDrawing = true;
         const p = canvas.getPointer(o.e);
         origX = p.x; origY = p.y;
@@ -195,8 +207,9 @@ function setupZoomAndPan() {
 
     let lastX, lastY;
     canvas.on('mouse:down', function(opt) {
-        // ALWAYS allow panning with Alt or when Hand tool is active
-        if (opt.e.altKey || currentTool === TOOLS.HAND) {
+        const target = canvas.findTarget(opt.e);
+        // Pan ONLY if we clicked on the background/image AND (Alt key is pressed OR Hand tool is active)
+        if ((opt.e.altKey || currentTool === TOOLS.HAND) && (!target || target === originalImage)) {
             this.isDragging = true;
             this.selection = false;
             lastX = opt.e.clientX;
@@ -218,7 +231,8 @@ function setupZoomAndPan() {
     canvas.on('mouse:up', function() {
         this.setViewportTransform(this.viewportTransform);
         this.isDragging = false;
-        this.selection = !canvas.isDrawingMode && currentTool !== TOOLS.HAND;
+        // Selection remains true for Hand tool so you can still pick objects to move them
+        this.selection = (currentTool !== TOOLS.DRAW);
         canvas.defaultCursor = currentTool === TOOLS.HAND ? 'grab' : 'default';
     });
 
@@ -240,7 +254,8 @@ document.querySelectorAll('button[id^="tool-"]').forEach(btn => btn.addEventList
     currentTool = btn.id.replace('tool-', '');
     
     canvas.isDrawingMode = (currentTool === TOOLS.DRAW);
-    canvas.selection = (currentTool !== TOOLS.DRAW && currentTool !== TOOLS.HAND);
+    // Hand tool needs selection to be able to "grab" objects
+    canvas.selection = (currentTool !== TOOLS.DRAW);
     canvas.defaultCursor = currentTool === TOOLS.HAND ? 'grab' : 'default';
 
     if (currentTool === TOOLS.TEXT) {
