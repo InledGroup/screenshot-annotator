@@ -9,10 +9,17 @@ import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
  */
 export default class ScreenshotAnnotatorExtension extends Extension {
     enable() {
-        console.log(`[Screenshot Annotator] v20 enabled - Stability Core`);
+        console.log(`[Screenshot Annotator] v28 enabled - Configurable Directory`);
         this._monitor = null;
-        this._lastLaunch = 0;
-        this._mutedFiles = new Map(); // path -> expiry timestamp
+        this._lastLaunchTime = 0;
+        this._ignoredPaths = new Map();
+        
+        this._settings = this.getSettings();
+        // Watch for settings changes to restart monitor
+        this._settingsId = this._settings.connect('changed::screenshot-directory', () => {
+            this._setupMonitor();
+        });
+
         this._setupMonitor();
     }
 
@@ -21,53 +28,71 @@ export default class ScreenshotAnnotatorExtension extends Extension {
             this._monitor.cancel();
             this._monitor = null;
         }
-        this._mutedFiles.clear();
+        if (this._settingsId) {
+            this._settings.disconnect(this._settingsId);
+            this._settingsId = 0;
+        }
+        this._settings = null;
+        this._ignoredPaths.clear();
     }
 
     _setupMonitor() {
-        const picturesDir = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES);
-        if (!picturesDir) return;
+        // Cancel existing monitor if any
+        if (this._monitor) {
+            this._monitor.cancel();
+            this._monitor = null;
+        }
 
-        // Detect localized Screenshot folder
         let screenshotDir = null;
-        const candidates = ['Screenshots', 'Capturas de pantalla', 'Capturas'];
-        for (const name of candidates) {
-            const path = GLib.build_filenamev([picturesDir, name]);
-            const dir = Gio.File.new_for_path(path);
+        const savedPath = this._settings.get_string('screenshot-directory');
+
+        if (savedPath && savedPath.trim() !== '') {
+            const dir = Gio.File.new_for_path(savedPath);
             if (dir.query_exists(null)) {
                 screenshotDir = dir;
-                break;
+            } else {
+                console.error(`[Screenshot Annotator] Configured path does not exist: ${savedPath}`);
             }
         }
-        if (!screenshotDir) screenshotDir = Gio.File.new_for_path(picturesDir);
+
+        // Auto-detect if no valid path configured
+        if (!screenshotDir) {
+            const picturesDir = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES);
+            if (!picturesDir) return;
+
+            const candidates = ['Screenshots', 'Capturas de pantalla', 'Capturas'];
+            for (const name of candidates) {
+                const path = GLib.build_filenamev([picturesDir, name]);
+                const dir = Gio.File.new_for_path(path);
+                if (dir.query_exists(null)) {
+                    screenshotDir = dir;
+                    break;
+                }
+            }
+            if (!screenshotDir) screenshotDir = Gio.File.new_for_path(picturesDir);
+        }
 
         console.log(`[Screenshot Annotator] Monitoring: ${screenshotDir.get_path()}`);
 
         this._monitor = screenshotDir.monitor_directory(Gio.FileMonitorFlags.NONE, null);
         this._monitor.connect('changed', (monitor, file, otherFile, eventType) => {
             const path = file.get_path();
-
-            // 1. Check if path is muted (to prevent save-loop)
-            if (this._mutedFiles.has(path)) {
-                const expiry = this._mutedFiles.get(path);
+            
+            if (this._ignoredPaths.has(path)) {
+                const expiry = this._ignoredPaths.get(path);
                 if (Date.now() < expiry) return;
-                this._mutedFiles.delete(path);
+                this._ignoredPaths.delete(path);
             }
 
-            // 2. Filter events
             if (eventType === Gio.FileMonitorEvent.CREATED || eventType === Gio.FileMonitorEvent.CHANGES_DONE_HINT) {
                 if (path.match(/\.(png|jpg|jpeg)$/i)) {
-                    // 3. Debounce rapid identical events
                     const now = Date.now();
-                    if (now - this._lastLaunch < 2000) return;
-                    this._lastLaunch = now;
+                    if (now - this._lastLaunchTime < 2000) return;
+                    this._lastLaunchTime = now;
 
-                    console.log(`[Screenshot Annotator] Processing new file: ${path}`);
-                    
-                    // 4. Mute the file immediately to avoid loop when editor saves
-                    this._mutedFiles.set(path, Date.now() + 15000); // Mute for 15s (plenty of time to edit)
+                    console.log(`[Screenshot Annotator] New screenshot detected: ${path}`);
+                    this._ignoredPaths.set(path, Date.now() + 10000);
 
-                    // 5. Spawn editor with full environment
                     GLib.timeout_add(GLib.PRIORITY_DEFAULT, 800, () => {
                         this._launchEditor(path);
                         return GLib.SOURCE_REMOVE;
@@ -83,11 +108,7 @@ export default class ScreenshotAnnotatorExtension extends Extension {
         const env = GLib.get_environ();
         
         try {
-            GLib.spawn_async(
-                null, argv, env, 
-                GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD, 
-                null
-            );
+            GLib.spawn_async(null, argv, env, GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD, null);
         } catch (e) {
             console.error(`[Screenshot Annotator] Launch error: ${e.message}`);
         }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.screenshot-annotator" path="/org/gnome/shell/extensions/screenshot-annotator/">
+    <key name="screenshot-directory" type="s">
+      <default>''</default>
+      <summary>Directory to monitor for screenshots</summary>
+      <description>If empty, the extension will attempt to auto-detect the Pictures/Screenshots folder.</description>
+    </key>
+  </schema>
+</schemalist>
