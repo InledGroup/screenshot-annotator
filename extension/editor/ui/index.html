@@ -17,20 +17,20 @@
                     <button id="tool-draw" class="active" title="Sketch"><i class="fas fa-pencil-alt"></i></button>
                     <button id="tool-rect" title="Rectangle"><i class="far fa-square"></i></button>
                     <button id="tool-circle" title="Circle"><i class="far fa-circle"></i></button>
+                    <button id="tool-arrow" title="Arrow"><i class="fas fa-long-arrow-alt-right"></i></button>
                     <button id="tool-text" title="Text"><i class="fas fa-font"></i></button>
                     <button id="tool-blur" title="Pixelate"><i class="fas fa-th"></i></button>
                 </div>
                 
                 <div class="divider"></div>
                 
-                <!-- Office Style Color Pickers -->
                 <div class="tool-group">
-                    <div class="color-control" title="Border / Text Color">
+                    <div class="color-control" title="Text & Border Color">
                         <i class="fas fa-font"></i>
                         <input type="color" id="stroke-color-picker" value="#ff3b30">
                         <div class="color-bar" id="stroke-bar"></div>
                     </div>
-                    <div class="color-control" title="Fill Color">
+                    <div class="color-control" title="Background & Fill Color">
                         <i class="fas fa-highlighter"></i>
                         <input type="color" id="fill-color-picker" value="#000000">
                         <div class="color-bar" id="fill-bar"></div>
@@ -54,6 +54,13 @@
             </div>
 
             <div class="right-tools">
+                <div class="tool-group zoom-controls">
+                    <button id="zoom-out"><i class="fas fa-search-minus"></i></button>
+                    <span id="zoom-level">100%</span>
+                    <button id="zoom-in"><i class="fas fa-search-plus"></i></button>
+                    <button id="zoom-reset" title="Fit to Screen"><i class="fas fa-compress-arrows-alt"></i></button>
+                </div>
+                <div class="divider"></div>
                 <button id="tool-ocr" class="secondary-btn"><i class="fas fa-expand"></i> Live Text</button>
                 <button id="action-restore" class="secondary-btn" title="Revert"><i class="fas fa-undo"></i></button>
                 <div class="divider"></div>

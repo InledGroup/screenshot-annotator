@@ -3,8 +3,9 @@ let currentTool = 'draw';
 let originalImage;
 let isDrawing = false;
 let origX, origY, activeShape;
+let zoomLevel = 1;
 
-const TOOLS = { DRAW: 'draw', RECT: 'rect', CIRCLE: 'circle', TEXT: 'text', BLUR: 'blur' };
+const TOOLS = { DRAW: 'draw', RECT: 'rect', CIRCLE: 'circle', ARROW: 'arrow', TEXT: 'text', BLUR: 'blur' };
 
 window.handleMessage = function(payload) {
     if (payload.action === 'init') initCanvas(payload.data.imageBase64);
@@ -21,9 +22,7 @@ function initCanvas(base64) {
     fabric.Image.fromURL(base64, function(img) {
         if (!img) return;
         originalImage = img;
-        const ratio = Math.min(window.innerWidth * 0.92 / img.width, (window.innerHeight - 110) * 0.92 / img.height);
-        canvas.setDimensions({ width: img.width * ratio, height: img.height * ratio });
-        img.set({ scaleX: ratio, scaleY: ratio, originX: 'left', originY: 'top', selectable: false, evented: false });
+        fitToScreen();
         canvas.add(img);
         canvas.sendToBack(img);
         canvas.renderAll();
@@ -31,6 +30,22 @@ function initCanvas(base64) {
     });
 
     setupInteraction();
+    setupZoomAndPan();
+}
+
+function fitToScreen() {
+    if (!originalImage) return;
+    const padding = 60;
+    const ratio = Math.min((window.innerWidth - padding) / originalImage.width, (window.innerHeight - 110 - padding) / originalImage.height);
+    zoomLevel = ratio;
+    updateZoomDisplay();
+    canvas.setDimensions({ width: originalImage.width * zoomLevel, height: originalImage.height * zoomLevel });
+    originalImage.set({ scaleX: zoomLevel, scaleY: zoomLevel, originX: 'left', originY: 'top', selectable: false, evented: false });
+    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+}
+
+function updateZoomDisplay() {
+    document.getElementById('zoom-level').textContent = Math.round(zoomLevel * 100) + '%';
 }
 
 function updateSettings() {
@@ -48,35 +63,36 @@ function updateSettings() {
 
     const active = canvas.getActiveObject();
     if (active) {
-        if (active.type === 'i-text') active.set('fill', strokeColor);
-        else {
+        if (active.type === 'i-text') {
+            active.set({ fill: strokeColor, backgroundColor: noFill ? 'transparent' : fillColor });
+        } else if (active.toolType !== TOOLS.BLUR) {
             active.set({ stroke: strokeColor, strokeWidth: strokeWidth, fill: noFill ? 'transparent' : fillColor });
         }
         canvas.renderAll();
     }
 }
 
-// REAL-TIME PIXELATION REGENERATOR
+// DYNAMIC PIXELATION
 function refreshPixelate(obj) {
     if (!obj || obj.toolType !== TOOLS.BLUR) return;
     
+    // Core: Use the actual width/height considering scaling
+    const actualWidth = obj.width * obj.scaleX;
+    const actualHeight = obj.height * obj.scaleY;
     const s = originalImage.scaleX;
-    const pixelSize = 15;
+    const pixelSize = 12;
     
-    // Create mosaic on a hidden canvas
     const tempCanvas = document.createElement('canvas');
     const ctx = tempCanvas.getContext('2d');
-    tempCanvas.width = obj.width * obj.scaleX;
-    tempCanvas.height = obj.height * obj.scaleY;
+    tempCanvas.width = actualWidth;
+    tempCanvas.height = actualHeight;
 
-    // Draw source portion
     ctx.drawImage(
         originalImage._element,
-        obj.left / s, obj.top / s, tempCanvas.width / s, tempCanvas.height / s,
-        0, 0, tempCanvas.width, tempCanvas.height
+        obj.left / s, obj.top / s, actualWidth / s, actualHeight / s,
+        0, 0, actualWidth, actualHeight
     );
 
-    // Pixelate loop
     for (let y = 0; y < tempCanvas.height; y += pixelSize) {
         for (let x = 0; x < tempCanvas.width; x += pixelSize) {
             const p = ctx.getImageData(x, y, 1, 1).data;
@@ -86,8 +102,31 @@ function refreshPixelate(obj) {
     }
 
     fabric.Image.fromURL(tempCanvas.toDataURL(), function(pImg) {
+        // Use pattern that matches current object scale
         obj.set('fill', new fabric.Pattern({ source: pImg._element, repeat: 'no-repeat' }));
+        // Important: we render a pattern that is already at the final size, 
+        // so we don't want the object scale to affect it internally twice.
+        // Fabric patterns are tricky with scaling.
         canvas.renderAll();
+    });
+}
+
+function createArrow(points) {
+    const strokeColor = document.getElementById('stroke-color-picker').value;
+    const strokeWidth = parseInt(document.getElementById('stroke-width').value);
+    
+    const headLength = 15 + strokeWidth;
+    const x1 = points[0], y1 = points[1], x2 = points[2], y2 = points[3];
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    
+    return new fabric.Path(`M ${x1} ${y1} L ${x2} ${y2} M ${x2} ${y2} L ${x2 - headLength * Math.cos(angle - Math.PI / 6)} ${y2 - headLength * Math.sin(angle - Math.PI / 6)} M ${x2} ${y2} L ${x2 - headLength * Math.cos(angle + Math.PI / 6)} ${y2 - headLength * Math.sin(angle + Math.PI / 6)}`, {
+        stroke: strokeColor,
+        strokeWidth: strokeWidth,
+        fill: 'transparent',
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        selectable: true,
+        strokeUniform: true
     });
 }
 
@@ -104,6 +143,7 @@ function setupInteraction() {
         const common = { left: origX, top: origY, strokeUniform: true, selectable: true };
         if (currentTool === TOOLS.RECT) activeShape = new fabric.Rect({ ...common, width: 1, height: 1, fill: fc, stroke: sc, strokeWidth: sw });
         else if (currentTool === TOOLS.CIRCLE) activeShape = new fabric.Circle({ ...common, radius: 1, fill: fc, stroke: sc, strokeWidth: sw });
+        else if (currentTool === TOOLS.ARROW) activeShape = createArrow([origX, origY, origX+1, origY+1]);
         else if (currentTool === TOOLS.BLUR) activeShape = new fabric.Rect({ ...common, width: 1, height: 1, toolType: TOOLS.BLUR, stroke: 'rgba(255,255,255,0.2)', strokeWidth: 1 });
         
         if (activeShape) canvas.add(activeShape);
@@ -113,6 +153,11 @@ function setupInteraction() {
         if (!isDrawing || !activeShape) return;
         const p = canvas.getPointer(o.e);
         if (currentTool === TOOLS.CIRCLE) activeShape.set({ left: Math.min(origX, p.x), top: Math.min(origY, p.y), radius: Math.abs(origX - p.x) / 2 });
+        else if (currentTool === TOOLS.ARROW) {
+            canvas.remove(activeShape);
+            activeShape = createArrow([origX, origY, p.x, p.y]);
+            canvas.add(activeShape);
+        }
         else activeShape.set({ left: Math.min(origX, p.x), top: Math.min(origY, p.y), width: Math.abs(origX - p.x), height: Math.abs(origY - p.y) });
         
         if (currentTool === TOOLS.BLUR) refreshPixelate(activeShape);
@@ -124,17 +169,60 @@ function setupInteraction() {
         isDrawing = false; activeShape = null; 
     });
 
-    // Update pixelation when moving/scaling
     canvas.on('object:moving', (e) => refreshPixelate(e.target));
     canvas.on('object:scaling', (e) => refreshPixelate(e.target));
 
-    // Deletion
     const del = () => { 
         canvas.getActiveObjects().forEach(obj => { if (obj !== originalImage) canvas.remove(obj); });
         canvas.discardActiveObject().renderAll();
     };
     document.getElementById('action-delete').addEventListener('click', del);
     window.addEventListener('keydown', (e) => { if (e.key === 'Delete' || e.key === 'Backspace') del(); });
+}
+
+function setupZoomAndPan() {
+    canvas.on('mouse:wheel', function(opt) {
+        const delta = opt.e.deltaY;
+        let zoom = canvas.getZoom();
+        zoom *= 0.999 ** delta;
+        if (zoom > 20) zoom = 20;
+        if (zoom < 0.01) zoom = 0.01;
+        canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+        zoomLevel = zoom;
+        updateZoomDisplay();
+        opt.e.preventDefault();
+        opt.e.stopPropagation();
+    });
+
+    let lastX, lastY;
+    canvas.on('mouse:down', function(opt) {
+        if (opt.e.altKey || currentTool === 'pan') {
+            this.isDragging = true;
+            this.selection = false;
+            lastX = opt.e.clientX;
+            lastY = opt.e.clientY;
+        }
+    });
+    canvas.on('mouse:move', function(opt) {
+        if (this.isDragging) {
+            const e = opt.e;
+            const vpt = this.viewportTransform;
+            vpt[4] += e.clientX - lastX;
+            vpt[5] += e.clientY - lastY;
+            this.requestRenderAll();
+            lastX = e.clientX;
+            lastY = e.clientY;
+        }
+    });
+    canvas.on('mouse:up', function() {
+        this.setViewportTransform(this.viewportTransform);
+        this.isDragging = false;
+        this.selection = !canvas.isDrawingMode;
+    });
+
+    document.getElementById('zoom-in').onclick = () => { zoomLevel *= 1.2; canvas.setZoom(zoomLevel); updateZoomDisplay(); };
+    document.getElementById('zoom-out').onclick = () => { zoomLevel /= 1.2; canvas.setZoom(zoomLevel); updateZoomDisplay(); };
+    document.getElementById('zoom-reset').onclick = fitToScreen;
 }
 
 // UI Handlers
@@ -145,33 +233,35 @@ document.querySelectorAll('button[id^="tool-"]').forEach(btn => btn.addEventList
     currentTool = btn.id.replace('tool-', '');
     canvas.isDrawingMode = (currentTool === TOOLS.DRAW);
     if (currentTool === TOOLS.TEXT) {
-        const t = new fabric.IText('Text', { left: 100, top: 100, fontFamily: 'sans-serif', fill: document.getElementById('stroke-color-picker').value });
+        const t = new fabric.IText('Text', { 
+            left: 100, top: 100, 
+            fontFamily: 'SF Pro Display, Segoe UI, sans-serif', 
+            fill: document.getElementById('stroke-color-picker').value,
+            backgroundColor: document.getElementById('btn-no-fill').classList.contains('active') ? 'transparent' : document.getElementById('fill-color-picker').value
+        });
         canvas.add(t).setActiveObject(t);
     }
 }));
 
-document.getElementById('btn-no-fill').addEventListener('click', function() {
-    this.classList.toggle('active');
-    updateSettings();
-});
-document.getElementById('stroke-color-picker').addEventListener('input', updateSettings);
-document.getElementById('fill-color-picker').addEventListener('input', updateSettings);
-document.getElementById('stroke-width').addEventListener('change', updateSettings);
+document.getElementById('btn-no-fill').onclick = function() { this.classList.toggle('active'); updateSettings(); };
+document.getElementById('stroke-color-picker').oninput = updateSettings;
+document.getElementById('fill-color-picker').oninput = updateSettings;
+document.getElementById('stroke-width').onchange = updateSettings;
 
 // Actions
-document.getElementById('action-save').addEventListener('click', () => {
-    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'save', data: { base64: canvas.toDataURL({ format: 'png', multiplier: 2 }) } }));
-});
-document.getElementById('action-copy').addEventListener('click', () => {
-    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'copy', data: { base64: canvas.toDataURL({ format: 'png', multiplier: 2 }) } }));
-});
-document.getElementById('action-restore').addEventListener('click', () => {
+document.getElementById('action-save').onclick = () => {
+    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'save', data: { base64: canvas.toDataURL({ format: 'png', multiplier: 2 / zoomLevel }) } }));
+};
+document.getElementById('action-copy').onclick = () => {
+    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ action: 'copy', data: { base64: canvas.toDataURL({ format: 'png', multiplier: 2 / zoomLevel }) } }));
+};
+document.getElementById('action-restore').onclick = () => {
     canvas.getObjects().forEach(obj => { if (obj !== originalImage) canvas.remove(obj); });
     canvas.renderAll();
-});
+};
 
 // OCR
-document.getElementById('tool-ocr').addEventListener('click', async () => {
+document.getElementById('tool-ocr').onclick = async () => {
     const btn = document.getElementById('tool-ocr');
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     try {
@@ -189,4 +279,4 @@ document.getElementById('tool-ocr').addEventListener('click', async () => {
         })));
         btn.innerHTML = '<i class="fas fa-expand"></i> Live Text';
     } catch (e) { btn.innerHTML = '<i class="fas fa-times"></i> Error'; }
-});
+};
