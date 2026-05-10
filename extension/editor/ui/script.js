@@ -359,49 +359,39 @@ document.getElementById('action-restore').onclick = () => {
     canvas.renderAll();
 };
 
-document.getElementById('tool-ocr').onclick = async () => {
+window.handleOCRResult = function(text) {
     const btn = document.getElementById('tool-ocr');
-    const originalContent = btn.innerHTML;
-    if (!currentBase64) { btn.innerHTML = '<i class="fas fa-times"></i> No Data'; setTimeout(() => btn.innerHTML = originalContent, 2000); return; }
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+    document.getElementById('ocr-text-res').value = text;
+    document.getElementById('ocr-toast').classList.remove('hidden');
+    
+    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ 
+        action: 'copy_text', 
+        data: { text: text } 
+    }));
+
+    btn.innerHTML = '<i class="fas fa-expand"></i>Copy text';
+    btn.disabled = false;
+};
+
+window.handleOCRError = function(error) {
+    const btn = document.getElementById('tool-ocr');
+    console.error('OCR Error:', error);
+    btn.innerHTML = `<i class="fas fa-times"></i> Error`;
+    setTimeout(() => btn.innerHTML = '<i class="fas fa-expand"></i>Copy text', 3000);
+    btn.disabled = false;
+};
+
+document.getElementById('tool-ocr').onclick = () => {
+    const btn = document.getElementById('tool-ocr');
+    if (!currentBase64) return;
+    
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Reading...';
     btn.disabled = true;
 
-    try {
-        const worker = await Tesseract.createWorker('eng', 1, {
-            workerPath: 'assets/worker.min.js',
-            corePath: 'assets/tesseract-core.wasm.js',
-            langPath: 'assets',
-            logger: m => {
-                if (m.status === 'loading tesseract core') btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Core...';
-                else if (m.status === 'loading language traineddata') btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Lang...';
-                else if (m.status === 'initializing api') btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Init...';
-                else if (m.status === 'recognizing text') btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${Math.round(m.progress * 100)}%`;
-            }
-        });
-
-        const result = await worker.recognize(currentBase64);
-        await worker.terminate();
-
-        if (!result || !result.data) throw new Error('OCR Failed');
-        
-        const fullText = result.data.text;
-        document.getElementById('ocr-text-res').value = fullText;
-        document.getElementById('ocr-toast').classList.remove('hidden');
-        
-        // Auto-copy to clipboard
-        window.webkit.messageHandlers.app.postMessage(JSON.stringify({ 
-            action: 'copy_text', 
-            data: { text: fullText } 
-        }));
-
-        btn.innerHTML = originalContent;
-    } catch (e) { 
-        console.error('OCR Error:', e);
-        btn.innerHTML = `<i class="fas fa-times"></i> ${e.message || 'Error'}`;
-        setTimeout(() => btn.innerHTML = originalContent, 3000);
-    } finally {
-        btn.disabled = false;
-    }
+    window.webkit.messageHandlers.app.postMessage(JSON.stringify({ 
+        action: 'ocr', 
+        data: { base64: currentBase64 } 
+    }));
 };
 
 document.getElementById('close-toast').onclick = () => {

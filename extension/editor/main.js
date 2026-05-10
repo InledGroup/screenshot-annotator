@@ -178,7 +178,38 @@ if (isGtk4) {
                 } catch(e) { console.error("Clipboard error:", e); }
             });
         } else if (action === 'copy_text') {
-            Gtk.Clipboard.get(Gdk.Atom.intern('CLIPBOARD', false)).set_text(data.text, -1);
+            clipboard.set_text(data.text);
+        } else if (action === 'ocr') {
+            // New system OCR handler
+            const tempFile = Gio.File.new_for_path(GLib.build_filenamev([GLib.get_tmp_dir(), `ocr_${Date.now()}.png`]));
+            const bytes = GLib.base64_decode(data.base64.split(',')[1]);
+            
+            tempFile.replace_contents_async(bytes, null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null, (f, res) => {
+                try {
+                    f.replace_contents_finish(res);
+                    const proc = new Gio.Subprocess({
+                        argv: ['tesseract', f.get_path(), 'stdout', '-l', 'eng+spa'],
+                        flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+                    });
+                    proc.init(null);
+                    proc.communicate_utf8_async(null, null, (p, res) => {
+                        try {
+                            const [ok, stdout, stderr] = p.communicate_utf8_finish(res);
+                            if (ok && stdout) {
+                                webView.run_javascript(`window.handleOCRResult(${JSON.stringify(stdout.trim())})`, null, null);
+                            } else {
+                                throw new Error(stderr || "OCR Failed");
+                            }
+                        } catch (e) {
+                            webView.run_javascript(`window.handleOCRError(${JSON.stringify(e.message)})`, null, null);
+                        } finally {
+                            f.delete_async(GLib.PRIORITY_DEFAULT, null, null);
+                        }
+                    });
+                } catch (e) {
+                    webView.run_javascript(`window.handleOCRError(${JSON.stringify(e.message)})`, null, null);
+                }
+            });
         } else if (action === 'close') win.destroy();
     });
 
