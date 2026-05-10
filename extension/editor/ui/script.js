@@ -5,7 +5,7 @@ let isDrawing = false;
 let origX, origY, activeShape;
 let zoomLevel = 1;
 
-const TOOLS = { DRAW: 'draw', RECT: 'rect', CIRCLE: 'circle', ARROW: 'arrow', TEXT: 'text', BLUR: 'blur' };
+const TOOLS = { HAND: 'hand', DRAW: 'draw', RECT: 'rect', CIRCLE: 'circle', ARROW: 'arrow', TEXT: 'text', BLUR: 'blur' };
 
 window.handleMessage = function(payload) {
     if (payload.action === 'init') initCanvas(payload.data.imageBase64);
@@ -23,12 +23,10 @@ function initCanvas(base64) {
         if (!img) return;
         originalImage = img;
         
-        // Initial fit to screen without permanent scaling
         const padding = 60;
         const initialZoom = Math.min((window.innerWidth - padding) / img.width, (window.innerHeight - 110 - padding) / img.height);
         
         zoomLevel = initialZoom;
-        
         img.set({ originX: 'left', originY: 'top', selectable: false, evented: false });
         
         canvas.setDimensions({ width: img.width, height: img.height });
@@ -57,10 +55,11 @@ function updateSettings() {
     const strokeWidth = parseInt(document.getElementById('stroke-width').value);
     const noFill = document.getElementById('btn-no-fill').classList.contains('active');
 
+    // FORCE TRANSPARENCY: If noFill is active, we MUST use transparent
     const actualFill = noFill ? 'transparent' : fillColor;
 
     document.getElementById('stroke-bar').style.backgroundColor = strokeColor;
-    document.getElementById('fill-bar').style.backgroundColor = actualFill;
+    document.getElementById('fill-bar').style.backgroundColor = noFill ? 'transparent' : fillColor;
 
     canvas.freeDrawingBrush.color = strokeColor;
     canvas.freeDrawingBrush.width = strokeWidth;
@@ -78,8 +77,6 @@ function updateSettings() {
 
 function refreshPixelate(obj) {
     if (!obj || obj.toolType !== TOOLS.BLUR) return;
-    
-    // Core: Pixelate uses full resolution image
     const pixelSize = 15;
     const left = obj.left;
     const top = obj.top;
@@ -110,25 +107,20 @@ function refreshPixelate(obj) {
 function createArrow(points) {
     const strokeColor = document.getElementById('stroke-color-picker').value;
     const strokeWidth = parseInt(document.getElementById('stroke-width').value);
-    
     const headLength = 15 + strokeWidth;
     const x1 = points[0], y1 = points[1], x2 = points[2], y2 = points[3];
     const angle = Math.atan2(y2 - y1, x2 - x1);
     
     return new fabric.Path(`M ${x1} ${y1} L ${x2} ${y2} M ${x2} ${y2} L ${x2 - headLength * Math.cos(angle - Math.PI / 6)} ${y2 - headLength * Math.sin(angle - Math.PI / 6)} M ${x2} ${y2} L ${x2 - headLength * Math.cos(angle + Math.PI / 6)} ${y2 - headLength * Math.sin(angle + Math.PI / 6)}`, {
-        stroke: strokeColor,
-        strokeWidth: strokeWidth,
-        fill: 'transparent',
-        strokeLineCap: 'round',
-        strokeLineJoin: 'round',
-        selectable: true,
-        strokeUniform: true
+        stroke: strokeColor, strokeWidth: strokeWidth, fill: 'transparent',
+        strokeLineCap: 'round', strokeLineJoin: 'round', selectable: true, strokeUniform: true
     });
 }
 
 function setupInteraction() {
     canvas.on('mouse:down', function(o) {
-        if (canvas.isDrawingMode || canvas.findTarget(o.e)) return;
+        if (canvas.isDrawingMode || currentTool === TOOLS.HAND || canvas.findTarget(o.e)) return;
+        
         isDrawing = true;
         const p = canvas.getPointer(o.e);
         origX = p.x; origY = p.y;
@@ -170,12 +162,9 @@ function setupInteraction() {
     canvas.on('object:moving', (e) => refreshPixelate(e.target));
     canvas.on('object:scaling', (e) => refreshPixelate(e.target));
 
-    // Handle Deletion with awareness of text editing
     const del = () => { 
         const active = canvas.getActiveObject();
-        // Don't delete if we are actively typing in a text box
         if (active && active.isEditing) return;
-        
         canvas.getActiveObjects().forEach(obj => { if (obj !== originalImage) canvas.remove(obj); });
         canvas.discardActiveObject().renderAll();
     };
@@ -183,13 +172,9 @@ function setupInteraction() {
     document.getElementById('action-delete').onclick = del;
     window.addEventListener('keydown', (e) => { 
         if (e.key === 'Delete') del(); 
-        // Backspace should only delete object if NOT editing text
         if (e.key === 'Backspace') {
             const active = canvas.getActiveObject();
-            if (active && !active.isEditing) {
-                del();
-                e.preventDefault();
-            }
+            if (active && !active.isEditing) { del(); e.preventDefault(); }
         }
     });
 }
@@ -210,11 +195,13 @@ function setupZoomAndPan() {
 
     let lastX, lastY;
     canvas.on('mouse:down', function(opt) {
-        if (opt.e.altKey || currentTool === 'pan') {
+        // ALWAYS allow panning with Alt or when Hand tool is active
+        if (opt.e.altKey || currentTool === TOOLS.HAND) {
             this.isDragging = true;
             this.selection = false;
             lastX = opt.e.clientX;
             lastY = opt.e.clientY;
+            canvas.defaultCursor = 'grabbing';
         }
     });
     canvas.on('mouse:move', function(opt) {
@@ -231,7 +218,8 @@ function setupZoomAndPan() {
     canvas.on('mouse:up', function() {
         this.setViewportTransform(this.viewportTransform);
         this.isDragging = false;
-        this.selection = !canvas.isDrawingMode;
+        this.selection = !canvas.isDrawingMode && currentTool !== TOOLS.HAND;
+        canvas.defaultCursor = currentTool === TOOLS.HAND ? 'grab' : 'default';
     });
 
     document.getElementById('zoom-in').onclick = () => { zoomLevel *= 1.2; canvas.setZoom(zoomLevel); updateZoomDisplay(); };
@@ -250,22 +238,31 @@ document.querySelectorAll('button[id^="tool-"]').forEach(btn => btn.addEventList
     document.querySelectorAll('button[id^="tool-"]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentTool = btn.id.replace('tool-', '');
+    
     canvas.isDrawingMode = (currentTool === TOOLS.DRAW);
+    canvas.selection = (currentTool !== TOOLS.DRAW && currentTool !== TOOLS.HAND);
+    canvas.defaultCursor = currentTool === TOOLS.HAND ? 'grab' : 'default';
+
     if (currentTool === TOOLS.TEXT) {
         const sc = document.getElementById('stroke-color-picker').value;
         const noFill = document.getElementById('btn-no-fill').classList.contains('active');
         const fc = noFill ? 'transparent' : document.getElementById('fill-color-picker').value;
         const t = new fabric.IText('Text', { 
-            left: canvas.width/2, top: canvas.height/2, 
+            left: (canvas.width / 2) / canvas.getZoom(), 
+            top: (canvas.height / 2) / canvas.getZoom(), 
             fontFamily: 'SF Pro Display, Segoe UI, sans-serif', 
             fill: sc,
             backgroundColor: fc
         });
         canvas.add(t).setActiveObject(t);
+        canvas.renderAll();
     }
 }));
 
-document.getElementById('btn-no-fill').onclick = function() { this.classList.toggle('active'); updateSettings(); };
+document.getElementById('btn-no-fill').onclick = function() { 
+    this.classList.toggle('active'); 
+    updateSettings(); 
+};
 document.getElementById('stroke-color-picker').oninput = updateSettings;
 document.getElementById('fill-color-picker').oninput = updateSettings;
 document.getElementById('stroke-width').onchange = updateSettings;
