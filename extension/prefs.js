@@ -1,8 +1,8 @@
 import Adw from 'gi://Adw';
 import Gtk from 'gi://Gtk';
-import { ExtensionPreferences } from 'resource:///org/gnome/shell/extensions/prefs.js';
+import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-export default class extends ExtensionPreferences {
+export default class ScreenshotAnnotatorPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
         const page = new Adw.PreferencesPage();

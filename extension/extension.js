@@ -1,6 +1,5 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
-import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 /**
@@ -9,7 +8,7 @@ import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
  */
 export default class ScreenshotAnnotatorExtension extends Extension {
     enable() {
-        console.log(`[Screenshot Annotator] v28 enabled - Configurable Directory`);
+        console.log(`[Screenshot Annotator] v29 enabled`);
         this._monitor = null;
         this._lastLaunchTime = 0;
         this._ignoredPaths = new Map();
