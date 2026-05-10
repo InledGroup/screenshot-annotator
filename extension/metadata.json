@@ -1,0 +1,10 @@
+{
+  "name": "Screenshot Annotator",
+  "description": "Automatically opens a macOS-like editor when a screenshot is taken.",
+  "uuid": "screenshot-annotator@gemini.cli",
+  "shell-version": [
+    "45", "46", "47", "48", "49", "50"
+  ],
+  "version": 3,
+  "url": ""
+}

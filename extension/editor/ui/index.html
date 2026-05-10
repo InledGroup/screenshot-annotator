@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screenshot Editor Pro</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <header class="toolbar">
+            <div class="left-tools">
+                <div class="tool-group">
+                    <button id="tool-draw" class="active" title="Sketch"><i class="fas fa-pencil-alt"></i></button>
+                    <button id="tool-rect" title="Rectangle"><i class="far fa-square"></i></button>
+                    <button id="tool-circle" title="Circle"><i class="far fa-circle"></i></button>
+                    <button id="tool-text" title="Text"><i class="fas fa-font"></i></button>
+                    <button id="tool-blur" title="Pixelate"><i class="fas fa-th"></i></button>
+                </div>
+                
+                <div class="divider"></div>
+                
+                <!-- Office Style Color Pickers -->
+                <div class="tool-group">
+                    <div class="color-control" title="Border / Text Color">
+                        <i class="fas fa-font"></i>
+                        <input type="color" id="stroke-color-picker" value="#ff3b30">
+                        <div class="color-bar" id="stroke-bar"></div>
+                    </div>
+                    <div class="color-control" title="Fill Color">
+                        <i class="fas fa-highlighter"></i>
+                        <input type="color" id="fill-color-picker" value="#000000">
+                        <div class="color-bar" id="fill-bar"></div>
+                        <button id="btn-no-fill" class="mini-btn" title="No Fill"><i class="fas fa-slash"></i></button>
+                    </div>
+                </div>
+
+                <div class="tool-group">
+                    <select id="stroke-width">
+                        <option value="3">Thin</option>
+                        <option value="6" selected>Medium</option>
+                        <option value="12">Thick</option>
+                    </select>
+                </div>
+
+                <div class="divider"></div>
+                
+                <button id="action-delete" class="danger-btn" title="Delete (Del)">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            </div>
+
+            <div class="right-tools">
+                <button id="tool-ocr" class="secondary-btn"><i class="fas fa-expand"></i> Live Text</button>
+                <button id="action-restore" class="secondary-btn" title="Revert"><i class="fas fa-undo"></i></button>
+                <div class="divider"></div>
+                <button id="action-copy" class="secondary-btn"><i class="far fa-copy"></i> Copy</button>
+                <button id="action-save" class="primary-btn">Done</button>
+            </div>
+        </header>
+        <main id="canvas-container">
+            <div class="canvas-wrapper">
+                <canvas id="editor-canvas"></canvas>
+            </div>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
