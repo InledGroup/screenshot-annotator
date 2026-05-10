@@ -1,6 +1,6 @@
 {
   "name": "Screenshot Annotator",
-  "description": "Editor, paint, OCR... all in one screenshot editor.",
+  "description": "Edit your screenshots. Includes paint, OCR, censoring and is designed to be easy to use. First, you need to setup the folder where your screenshots are stored. For this, open the extension settings before using the extension.",
   "uuid": "screenshot-annotator@inled.es",
   "shell-version": ["45", "46", "47", "48", "49", "50"],
   "settings-schema": "org.gnome.shell.extensions.screenshot-annotator",

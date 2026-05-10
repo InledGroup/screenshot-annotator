@@ -1,9 +1,30 @@
 #!/bin/bash
-OUTPUT="screenshot-annotator@inled.es.shell-extension.zip"
-echo "📦 Generando paquete V12 (Python ZIP)..."
+UUID="screenshot-annotator@inled.es"
+OUTPUT="$UUID.shell-extension.zip"
+
+echo "📦 Generando paquete para GNOME Extensions Store..."
+
+# Limpiar versiones anteriores
 rm -f "$OUTPUT"
+
+# Entrar al directorio de la extensión
 cd extension
-# Como no tienes 'zip', usamos python3 que sí está disponible
-python3 -m zipfile -c "../$OUTPUT" .
+
+# Empaquetar solo los archivos necesarios
+# Excluimos archivos de sistema, logs, o carpetas ocultas si las hubiera
+python3 -m zipfile -c "../$OUTPUT" \
+    extension.js \
+    metadata.json \
+    prefs.js \
+    LICENSE \
+    editor/ \
+    schemas/
+
 cd ..
+
 echo "✅ Paquete generado: $OUTPUT"
+echo "--------------------------------------------------"
+echo "🔍 Verificando contenido del paquete..."
+python3 -m zipfile -l "$OUTPUT" | grep -E "metadata.json|extension.js|LICENSE"
+echo "--------------------------------------------------"
+echo "🚀 Listo para subir a https://extensions.gnome.org/upload/"
