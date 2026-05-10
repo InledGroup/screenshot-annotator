@@ -1,70 +1,46 @@
-import { ExtensionPreferences } from 'resource:///org/gnome/shell/extensions/prefs.js';
 import Adw from 'gi://Adw';
 import Gtk from 'gi://Gtk';
-import Gio from 'gi://Gio';
+import { ExtensionPreferences } from 'resource:///org/gnome/shell/extensions/prefs.js';
 
-export default class ScreenshotAnnotatorPreferences extends ExtensionPreferences {
+export default class extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
-        
         const page = new Adw.PreferencesPage();
-        const group = new Adw.PreferencesGroup({
-            title: 'Configuración',
-            description: 'Configura la carpeta donde la extensión debe buscar nuevas capturas de pantalla.'
-        });
+        const group = new Adw.PreferencesGroup();
+        page.add(group);
 
         const row = new Adw.ActionRow({
-            title: 'Carpeta de Capturas',
-            subtitle: settings.get_string('screenshot-directory') || 'Detección automática'
+            title: 'Carpeta de capturas',
+            subtitle: settings.get_string('screenshot-directory') || 'Detección automática',
         });
+        group.add(row);
 
-        const fileButton = new Gtk.Button({
+        const button = new Gtk.Button({
             icon_name: 'folder-open-symbolic',
             valign: Gtk.Align.CENTER,
-            margin_start: 10
         });
+        row.add_suffix(button);
 
-        fileButton.connect('clicked', () => {
-            const dialog = new Gtk.FileChooserDialog({
+        button.connect('clicked', () => {
+            const chooser = new Gtk.FileChooserNative({
                 title: 'Seleccionar carpeta de capturas',
                 action: Gtk.FileChooserAction.SELECT_FOLDER,
-                transient_for: window.get_root(),
-                modal: true
+                transient_for: window,
+                modal: true,
             });
 
-            dialog.add_button('Cancelar', Gtk.ResponseType.CANCEL);
-            dialog.add_button('Seleccionar', Gtk.ResponseType.ACCEPT);
-
-            dialog.connect('response', (d, response) => {
+            chooser.connect('response', (self, response) => {
                 if (response === Gtk.ResponseType.ACCEPT) {
-                    const path = d.get_file().get_path();
+                    const path = self.get_file().get_path();
                     settings.set_string('screenshot-directory', path);
-                    row.set_subtitle(path);
+                    row.subtitle = path;
                 }
-                d.destroy();
+                self.destroy();
             });
 
-            dialog.show();
+            chooser.show();
         });
 
-        const resetButton = new Gtk.Button({
-            icon_name: 'edit-clear-symbolic',
-            valign: Gtk.Align.CENTER,
-            margin_start: 5
-        });
-
-        resetButton.connect('clicked', () => {
-            settings.set_string('screenshot-directory', '');
-            row.set_subtitle('Detección automática');
-        });
-
-        const box = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL });
-        box.append(fileButton);
-        box.append(resetButton);
-
-        row.add_suffix(box);
-        group.add(row);
-        page.add(group);
         window.add(page);
     }
 }
