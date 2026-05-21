@@ -90,7 +90,7 @@ if (isGtk4) {
 
         webView.set_background_color(new Gdk.RGBA({ red: 0, green: 0, blue: 0, alpha: 0 }));
 
-        contentManager.register_script_message_handler('app');
+        contentManager.register_script_message_handler('app', null);
         contentManager.connect('script-message-received::app', (manager, message) => {
             const body = message.get_js_value().to_string();
             const { action, data } = JSON.parse(body);
@@ -110,6 +110,36 @@ if (isGtk4) {
                 } catch (e) { console.error("Clipboard error:", e); }
             } else if (action === 'copy_text') {
                 clipboard.set_text(data.text);
+            } else if (action === 'ocr') {
+                const tempFile = Gio.File.new_for_path(GLib.build_filenamev([GLib.get_tmp_dir(), `ocr_${Date.now()}.png`]));
+                const bytes = GLib.base64_decode(data.base64.split(',')[1]);
+
+                tempFile.replace_contents_async(bytes, null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null, (f, res) => {
+                    try {
+                        f.replace_contents_finish(res);
+                        const proc = new Gio.Subprocess({
+                            argv: ['tesseract', f.get_path(), 'stdout', '-l', 'eng+spa'],
+                            flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+                        });
+                        proc.init(null);
+                        proc.communicate_utf8_async(null, null, (p, res) => {
+                            try {
+                                const [ok, stdout, stderr] = p.communicate_utf8_finish(res);
+                                if (ok && stdout) {
+                                    webView.evaluate_javascript(`window.handleOCRResult(${JSON.stringify(stdout.trim())})`, -1, null, null, null, null);
+                                } else {
+                                    throw new Error(stderr || "OCR Failed");
+                                }
+                            } catch (e) {
+                                webView.evaluate_javascript(`window.handleOCRError(${JSON.stringify(e.message)})`, -1, null, null, null, null);
+                            } finally {
+                                f.delete_async(GLib.PRIORITY_DEFAULT, null, null);
+                            }
+                        });
+                    } catch (e) {
+                        webView.evaluate_javascript(`window.handleOCRError(${JSON.stringify(e.message)})`, -1, null, null, null, null);
+                    }
+                });
             } else if (action === 'close') win.destroy();
         });
 
@@ -123,12 +153,16 @@ if (isGtk4) {
             if (event === WebKit.LoadEvent.FINISHED) {
                 const base64Data = getBase64(imagePath);
                 const payload = JSON.stringify({ action: 'init', data: { imageBase64: base64Data } });
-                webView.evaluate_javascript(`window.handleMessage(${payload})`, -1, null, null, null, null, null);
+                webView.evaluate_javascript(`window.handleMessage(${payload})`, -1, null, null, null, null);
             }
         });
         win.present();
     });
-    app.run([system.programInvocationName, ...system.programArgs]);
+    
+    // We pass only the program name to app.run to avoid GIO trying to "open" the image path argument
+    // which we handle manually in the 'activate' signal using system.programArgs.
+    const exitCode = app.run([system.programInvocationName]);
+    system.exit(exitCode);
 } else {
     // GTK3 Implementation
     Gtk.init(null);
@@ -158,7 +192,7 @@ if (isGtk4) {
 
     webView.set_background_color(new Gdk.RGBA({ red: 0, green: 0, blue: 0, alpha: 0 }));
 
-    contentManager.register_script_message_handler('app');
+    contentManager.register_script_message_handler('app', null);
     contentManager.connect('script-message-received::app', (manager, message) => {
         const body = message.get_js_value().to_string();
         const { action, data } = JSON.parse(body);
@@ -178,7 +212,7 @@ if (isGtk4) {
                 } catch(e) { console.error("Clipboard error:", e); }
             });
         } else if (action === 'copy_text') {
-            clipboard.set_text(data.text);
+            Gtk.Clipboard.get(Gdk.Atom.intern('CLIPBOARD', false)).set_text(data.text, -1);
         } else if (action === 'ocr') {
             // New system OCR handler
             const tempFile = Gio.File.new_for_path(GLib.build_filenamev([GLib.get_tmp_dir(), `ocr_${Date.now()}.png`]));
